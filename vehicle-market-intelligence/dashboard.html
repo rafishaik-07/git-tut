@@ -1,0 +1,115 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Vehicle Market Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f4f6fa;--card:#fff;--tx:#1b2333;--mu:#667085;--bd:#e3e7ee;--ac:#4f46e5;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1420;--card:#171d2b;--tx:#e8ecf5;--mu:#98a2b3;--bd:#262e40;--ac:#818cf8}}
+:root[data-theme="dark"]{--bg:#0f1420;--card:#171d2b;--tx:#e8ecf5;--mu:#98a2b3;--bd:#262e40;--ac:#818cf8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 20px}
+h1{font-size:20px;margin:0}small,.mu{color:var(--mu)}
+.btn{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}.btn.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+.bar{display:flex;flex-wrap:wrap;gap:10px;padding:0 20px 12px;align-items:end}
+.bar label{display:flex;flex-direction:column;font-size:11px;color:var(--mu);gap:3px}
+select,input[type=date]{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;min-width:120px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;padding:0 20px 12px}
+.k{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px}.k b{display:block;font-size:24px;margin-top:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;padding:0 20px 12px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;min-width:0}.c h3{margin:0 0 8px;font-size:13px}.c.w{grid-column:1/-1}
+.c div{position:relative;height:250px}.c.w div{height:230px}
+.ins{padding:0 20px 28px}.ins .c div{height:auto}ul{margin:0;padding-left:18px}li{margin:6px 0}
+#msg{padding:0 20px 8px;color:var(--mu)}
+</style></head><body>
+<header><div><h1>🚗 Vehicle Market Intelligence Dashboard</h1><small id="src">Demo data loaded — upload your Excel/CSV to replace it</small></div>
+<div><input type="file" id="f" accept=".xlsx,.xls,.csv" hidden><button class="btn" onclick="f.click()">⬆ Upload Excel / CSV</button> <button class="btn g" id="rs">Reset filters</button></div></header>
+<div class="bar" id="sl"></div>
+<div id="msg">Tip: click a bar, slice or month on a chart to cross-filter.</div>
+<div class="kpis" id="kp"></div>
+<div class="grid">
+<div class="c w"><h3>1 · Timeline: listings &amp; average price by month (click a month to filter)</h3><div><canvas id="c1"></canvas></div></div>
+<div class="c"><h3>2 · Top 10 makes by listings</h3><div><canvas id="c2"></canvas></div></div>
+<div class="c"><h3>3 · Fuel type mix</h3><div><canvas id="c3"></canvas></div></div>
+<div class="c"><h3>4 · Average price by body type</h3><div><canvas id="c4"></canvas></div></div>
+<div class="c"><h3>5 · Price vs odometer (scatter)</h3><div><canvas id="c5"></canvas></div></div>
+<div class="c"><h3>6 · Depreciation % by vehicle age</h3><div><canvas id="c6"></canvas></div></div>
+<div class="c"><h3>7 · Avg days on market by condition</h3><div><canvas id="c7"></canvas></div></div>
+<div class="c"><h3>8 · Quality radar by fuel type</h3><div><canvas id="c8"></canvas></div></div>
+<div class="c"><h3>9 · Price distribution (histogram)</h3><div><canvas id="c9"></canvas></div></div>
+<div class="c"><h3>10 · Sale outcome by body type (stacked)</h3><div><canvas id="c10"></canvas></div></div>
+</div>
+<div class="ins"><div class="c"><h3>Deep analysis — auto-generated from the filtered data</h3><div><ul id="in"></ul></div></div></div>
+<script>
+const $=id=>document.getElementById(id);let RAW=[],F=[],CH={};
+const PAL=['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#a855f7','#ec4899','#84cc16','#f97316','#14b8a6'];
+const SL=[['make','Make'],['body_type','Body type'],['fuel_type','Fuel'],['vehicle_condition','Condition'],['region','Region'],['seller_type','Seller']];
+const N=v=>{v=parseFloat(v);return isNaN(v)?null:v};
+const avg=a=>{a=a.filter(x=>x!=null&&!isNaN(x));return a.length?a.reduce((s,x)=>s+x,0)/a.length:null};
+const fm=(v,d=0)=>v==null?'–':v.toLocaleString(undefined,{maximumFractionDigits:d});
+const grp=(rows,k)=>{const m=new Map();rows.forEach(r=>{const x=k(r);if(x==null||x==='')return;(m.get(x)||m.set(x,[]).get(x)).push(r)});return m};
+function pd(v){if(v instanceof Date)return v;if(typeof v==='number'&&v>20000)return new Date(Math.round((v-25569)*864e5));const d=new Date(v);return isNaN(d)?null:d}
+function norm(rows){return rows.map(o=>{const r={};for(const k in o)r[String(k).trim().toLowerCase().replace(/\s+/g,'_')]=o[k];
+r.price=N(r.listing_price)??N(r.current_market_price);r.odo=N(r.odometer_km);r.age=N(r.vehicle_age);
+r.d=pd(r.listing_date);r.m=r.d?r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'):null;
+r.dep=N(r.depreciation_percent);if(r.dep==null&&N(r.msrp)&&r.price!=null)r.dep=(1-r.price/N(r.msrp))*100;
+r.dom=N(r.days_on_market);
+r.sold=/sold/i.test(String(r.sale_status||''))||N(r.final_sale_price)!=null&&!r.sale_status;
+r.region=r.region??r.state_province??r.country;return r})}
+function demo(){const mk=['Toyota','Honda','Ford','BMW','Audi','Tesla','Hyundai','Kia','Mercedes','Nissan','Chevrolet','Volkswagen'],bt=['SUV','Sedan','Hatchback','Truck','Coupe','Wagon'],ft=['Petrol','Diesel','Hybrid','Electric'],cd=['Excellent','Good','Fair','Poor'],rg=['North','South','East','West','Central'],st=['Sold','Available','Reserved','Expired'];
+const pick=a=>a[Math.floor(Math.random()*a.length)],rows=[];
+for(let i=0;i<1500;i++){const age=Math.floor(Math.random()*13),m=pick(mk),b=pick(bt),f=pick(ft),msrp=(m==='BMW'||m==='Audi'||m==='Mercedes'||m==='Tesla'?55000:28000)*(b==='Truck'||b==='SUV'?1.2:1)*(f==='Electric'?1.15:1),odo=age*(9000+Math.random()*9000),pr=Math.max(1500,msrp*Math.pow(.88,age)*(.9+Math.random()*.2));
+const d=new Date(2024,0,1+Math.floor(Math.random()*640)),c=cd[Math.min(3,Math.floor(age/4+Math.random()*1.5))],s=pick(st);
+rows.push({make:m,body_type:b,fuel_type:f,vehicle_condition:c,region:pick(rg),seller_type:Math.random()<.6?'Dealer':'Private',vehicle_age:age,odometer_km:Math.round(odo),msrp:Math.round(msrp),listing_price:Math.round(pr),depreciation_percent:(1-pr/msrp)*100,days_on_market:Math.floor(10+Math.random()*80+age*2),listing_date:d,sale_status:s,reliability_score:60+Math.random()*35-age,overall_safety_score:65+Math.random()*30,performance_score:50+Math.random()*45,overall_condition_score:90-age*3+Math.random()*10,accident_history:Math.random()<.2?'Yes':'No',final_sale_price:s==='Sold'?Math.round(pr*.96):null})}return rows}
+function init(rows,label){RAW=norm(rows);$('src').textContent=label+' · '+RAW.length.toLocaleString()+' rows';
+$('sl').innerHTML=SL.map(([k,l])=>{const v=[...new Set(RAW.map(r=>r[k]).filter(x=>x!=null&&x!==''))].sort();return v.length?`<label>${l}<select data-k="${k}"><option value="">All</option>${v.map(x=>`<option>${x}</option>`).join('')}</select></label>`:''}).join('')+
+`<label>From<input type="date" id="df"></label><label>To<input type="date" id="dt"></label>`;
+const ds=RAW.map(r=>r.d).filter(Boolean).sort((a,b)=>a-b);if(ds.length){$('df').min=$('dt').min=ds[0].toISOString().slice(0,10);$('df').max=$('dt').max=ds.at(-1).toISOString().slice(0,10)}
+document.querySelectorAll('#sl select,#sl input').forEach(e=>e.onchange=render);render()}
+function setSel(k,v){const s=document.querySelector(`select[data-k="${k}"]`);if(s){s.value=v;render()}}
+function filt(){const sel=[...document.querySelectorAll('#sl select')].map(s=>[s.dataset.k,s.value]).filter(x=>x[1]),a=$('df')&&$('df').value?new Date($('df').value):null,b=$('dt')&&$('dt').value?new Date($('dt').value+'T23:59:59'):null;
+return RAW.filter(r=>sel.every(([k,v])=>String(r[k])===v)&&(!a||(r.d&&r.d>=a))&&(!b||(r.d&&r.d<=b)))}
+function mk(id,cfg,click){if(CH[id])CH[id].destroy();cfg.options=Object.assign({responsive:true,maintainAspectRatio:false,animation:{duration:300},plugins:{legend:{display:cfg.legend!==false&&cfg.type!=='bar'}}},cfg.options||{});if(click)cfg.options.onClick=(e,el,c)=>{if(el.length)click(c.data.labels[el[0].index])};CH[id]=new Chart($(id),cfg)}
+function corr(x,y){const p=x.map((v,i)=>[v,y[i]]).filter(q=>q[0]!=null&&q[1]!=null);if(p.length<3)return null;const mx=avg(p.map(q=>q[0])),my=avg(p.map(q=>q[1]));let n=0,dx=0,dy=0;p.forEach(([a,b])=>{n+=(a-mx)*(b-my);dx+=(a-mx)**2;dy+=(b-my)**2});return n/Math.sqrt(dx*dy)}
+function render(){F=filt();const cs=getComputedStyle(document.documentElement);Chart.defaults.color=cs.getPropertyValue('--mu').trim()||'#667085';Chart.defaults.borderColor=cs.getPropertyValue('--bd').trim()||'#e3e7ee';
+const sold=F.filter(r=>r.sold);
+const K=[['Total listings',fm(F.length)],['Avg listing price','$'+fm(avg(F.map(r=>r.price)))],['Avg days on market',fm(avg(F.map(r=>r.dom)),1)],['Sell-through rate',F.length?fm(sold.length/F.length*100,1)+'%':'–'],['Avg depreciation',fm(avg(F.map(r=>r.dep)),1)+'%']];
+$('kp').innerHTML=K.map(([l,v])=>`<div class="k"><span class="mu">${l}</span><b>${v}</b></div>`).join('');
+const mo=[...grp(F,r=>r.m)].sort((a,b)=>a[0]<b[0]?-1:1);
+mk('c1',{type:'bar',data:{labels:mo.map(x=>x[0]),datasets:[{label:'Listings',data:mo.map(x=>x[1].length),backgroundColor:PAL[0]+'99',yAxisID:'y'},{label:'Avg price',type:'line',data:mo.map(x=>avg(x[1].map(r=>r.price))),borderColor:PAL[2],tension:.3,yAxisID:'y1'}]},options:{scales:{y1:{position:'right',grid:{drawOnChartArea:false}}}}},m=>{const [y,mm]=m.split('-');$('df').value=m+'-01';$('dt').value=new Date(y,mm,0).toISOString().slice(0,10);render()});
+const tm=[...grp(F,r=>r.make)].sort((a,b)=>b[1].length-a[1].length).slice(0,10);
+mk('c2',{type:'bar',data:{labels:tm.map(x=>x[0]),datasets:[{data:tm.map(x=>x[1].length),backgroundColor:PAL}]},options:{indexAxis:'y'}},v=>setSel('make',v));
+const fu=[...grp(F,r=>r.fuel_type)];
+mk('c3',{type:'doughnut',data:{labels:fu.map(x=>x[0]),datasets:[{data:fu.map(x=>x[1].length),backgroundColor:PAL}]}},v=>setSel('fuel_type',v));
+const bb=[...grp(F,r=>r.body_type)].map(x=>[x[0],avg(x[1].map(r=>r.price)),x[1]]).sort((a,b)=>b[1]-a[1]);
+mk('c4',{type:'bar',data:{labels:bb.map(x=>x[0]),datasets:[{label:'Avg price',data:bb.map(x=>x[1]),backgroundColor:PAL[4]}]}},v=>setSel('body_type',v));
+const sc=F.filter(r=>r.price!=null&&r.odo!=null),step=Math.max(1,Math.floor(sc.length/700));
+mk('c5',{type:'scatter',data:{datasets:[{label:'Vehicle',data:sc.filter((_,i)=>i%step===0).map(r=>({x:r.odo,y:r.price})),backgroundColor:PAL[5]+'88',pointRadius:3}]},options:{scales:{x:{title:{display:true,text:'Odometer (km)'}},y:{title:{display:true,text:'Price'}}}},legend:false});
+const ag=[...grp(F,r=>r.age)].sort((a,b)=>a[0]-b[0]);
+mk('c6',{type:'line',data:{labels:ag.map(x=>x[0]),datasets:[{label:'Avg depreciation %',data:ag.map(x=>avg(x[1].map(r=>r.dep))),borderColor:PAL[3],backgroundColor:PAL[3]+'33',fill:true,tension:.3}]},legend:false});
+const cn=[...grp(F,r=>r.vehicle_condition)];
+mk('c7',{type:'bar',data:{labels:cn.map(x=>x[0]),datasets:[{label:'Days',data:cn.map(x=>avg(x[1].map(r=>r.dom))),backgroundColor:PAL[1]}]}},v=>setSel('vehicle_condition',v));
+const ax=[['reliability_score','Reliability'],['overall_safety_score','Safety'],['performance_score','Performance'],['overall_condition_score','Condition']];
+mk('c8',{type:'radar',data:{labels:ax.map(a=>a[1]),datasets:fu.slice(0,5).map((x,i)=>({label:x[0],data:ax.map(a=>avg(x[1].map(r=>N(r[a[0]])))),borderColor:PAL[i],backgroundColor:PAL[i]+'22'}))}});
+const pr=F.map(r=>r.price).filter(x=>x!=null),mx=Math.max(...pr,1),bw=Math.ceil(mx/12/1000)*1000||1000,hb=Array(12).fill(0);pr.forEach(p=>hb[Math.min(11,Math.floor(p/bw))]++);
+mk('c9',{type:'bar',data:{labels:hb.map((_,i)=>'$'+fm(i*bw/1000)+'k'),datasets:[{label:'Listings',data:hb,backgroundColor:PAL[6]}]},options:{scales:{x:{grid:{display:false}}},datasets:{bar:{categoryPercentage:1,barPercentage:.95}}}});
+const ss=[...new Set(F.map(r=>r.sale_status).filter(Boolean))],b6=[...grp(F,r=>r.body_type)].sort((a,b)=>b[1].length-a[1].length).slice(0,6);
+mk('c10',{type:'bar',data:{labels:b6.map(x=>x[0]),datasets:ss.map((s,i)=>({label:s,data:b6.map(x=>x[1].filter(r=>r.sale_status===s).length),backgroundColor:PAL[i%10]}))},options:{scales:{x:{stacked:true},y:{stacked:true}}},legend:true});
+insights(F,tm,bb,ag)}
+function insights(F,tm,bb,ag){const L=[];if(!F.length){$('in').innerHTML='<li>No rows match the current filters.</li>';return}
+const top=tm[0];if(top)L.push(`<b>Market leader:</b> ${top[0]} holds ${fm(top[1].length/F.length*100,1)}% of listings (${fm(top[1].length)}), avg price $${fm(avg(top[1].map(r=>r.price)))}.`);
+if(bb.length)L.push(`<b>Price spread:</b> ${bb[0][0]} is the priciest body type ($${fm(bb[0][1])}); ${bb.at(-1)[0]} the cheapest ($${fm(bb.at(-1)[1])}) — a ${fm(bb[0][1]/bb.at(-1)[1],1)}× gap.`);
+const cp=corr(F.map(r=>r.odo),F.map(r=>r.price)),ca=corr(F.map(r=>r.age),F.map(r=>r.price));
+if(cp!=null)L.push(`<b>Mileage effect:</b> price vs odometer correlation is ${fm(cp,2)}${ca!=null?`; vs age ${fm(ca,2)}`:''} — ${Math.abs(cp)>.5?'a strong':'a moderate/weak'} driver of value.`);
+if(ag.length>2){const a0=avg(ag[0][1].map(r=>r.dep)),a1=avg(ag.at(-1)[1].map(r=>r.dep));if(a0!=null&&a1!=null)L.push(`<b>Depreciation curve:</b> from ${fm(a0,1)}% at age ${ag[0][0]} to ${fm(a1,1)}% at age ${ag.at(-1)[0]} (~${fm((a1-a0)/(ag.at(-1)[0]-ag[0][0]||1),1)} pts per year).`)}
+const fs=[...grp(F,r=>r.fuel_type)].map(x=>[x[0],avg(x[1].map(r=>r.dom))]).filter(x=>x[1]!=null).sort((a,b)=>a[1]-b[1]);
+if(fs.length>1)L.push(`<b>Speed to sell:</b> ${fs[0][0]} vehicles sell fastest (${fm(fs[0][1],1)} days) vs ${fs.at(-1)[0]} slowest (${fm(fs.at(-1)[1],1)} days).`);
+const ac=F.filter(r=>/^(yes|true|1)$/i.test(String(r.accident_history))),nc=F.filter(r=>!/^(yes|true|1)$/i.test(String(r.accident_history)));
+if(ac.length&&nc.length){const p=avg(ac.map(r=>r.price)),q=avg(nc.map(r=>r.price));if(p&&q)L.push(`<b>Accident discount:</b> accident-history cars list ${fm((1-p/q)*100,1)}% below clean-history cars (note: not controlled for age/make).`)}
+const sd=[...grp(F,r=>r.seller_type)].map(x=>[x[0],x[1].filter(r=>r.sold).length/x[1].length*100]).sort((a,b)=>b[1]-a[1]);
+if(sd.length>1)L.push(`<b>Channel performance:</b> ${sd[0][0]} listings convert best (${fm(sd[0][1],1)}% sold) vs ${sd.at(-1)[0]} (${fm(sd.at(-1)[1],1)}%).`);
+const vm=[...grp(F,r=>r.make)].filter(x=>x[1].length>=10).map(x=>[x[0],avg(x[1].map(r=>r.dep))]).filter(x=>x[1]!=null).sort((a,b)=>a[1]-b[1]);
+if(vm.length>1)L.push(`<b>Best value retention:</b> ${vm[0][0]} (${fm(vm[0][1],1)}% avg depreciation); weakest: ${vm.at(-1)[0]} (${fm(vm.at(-1)[1],1)}%).`);
+$('in').innerHTML=L.map(x=>'<li>'+x+'</li>').join('')}
+$('rs').onclick=()=>{document.querySelectorAll('#sl select').forEach(s=>s.value='');$('df').value=$('dt').value='';render()};
+$('f').onchange=e=>{const file=e.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true}),rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:null});if(!rows.length)throw 0;init(rows,file.name)}catch(x){alert('Could not read that file. Use .xlsx, .xls or .csv with a header row.')}};rd.readAsArrayBuffer(file)};
+init(demo(),'Demo data');
+</script></body></html>
