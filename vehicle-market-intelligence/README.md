@@ -1,6 +1,10 @@
 # Vehicle Market Intelligence Dashboard
 ### Mohammed Rafi Shaik · AI-assisted analytics portfolio
 
+## [Open the live interactive dashboard](https://rafi-vehicle-market-dashboard.mohammedrafi-shaik20.chatgpt.site)
+
+The public dashboard automatically loads all 100,000 records with the fields needed for its visualizations. Explore 10 charts, five KPI cards, and category/date filters without downloading a file.
+
 An interactive vehicle-listing dashboard created using **Claude AI and basic prompts**. This project demonstrates using an AI assistant to turn an analytics idea into a browser-based dashboard, with pricing, inventory, depreciation, condition, and sale-status views.
 
 **My contribution:** I used Claude AI and prompts to create this dashboard and selected it as a portfolio project. Claude assisted with the implementation. This portfolio describes the supplied artifact; it does not claim that I independently wrote all the JavaScript or performed production deployment.
@@ -27,7 +31,7 @@ An interactive vehicle-listing dashboard created using **Claude AI and basic pro
 4. Choose dropdown/date filters, or click a supported chart category to filter the other views.
 5. Click **Reset filters** to return to all uploaded rows.
 
-GitHub displays HTML source rather than executing the dashboard. This repository does not currently provide a hosted dashboard URL.
+GitHub displays HTML source rather than executing the dashboard. Use the live dashboard link above for automatic dataset loading. The downloadable HTML starts with demo data until a CSV/Excel file is uploaded.
 
 ## Verified dataset snapshot
 
